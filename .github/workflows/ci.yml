@@ -27,11 +27,10 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config
 
-      - name: Check required project docs
+      - name: Check required project files
         run: |
           test -f README.md
-          test -f AGENTS.md
-          test -f docs/development-plan.md
+          test -f docker-compose.yml
           test -f .env.example
 
   detect_services:
