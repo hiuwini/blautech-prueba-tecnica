@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope
+  xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:com="http://gov.example/regulatory/compliance">
+  <soapenv:Header />
+  <soapenv:Body>
+    <com:ComplianceCheckRequest>
+      <com:DocumentId>22222222-2222-4222-8222-222222222222</com:DocumentId>
+      <com:DocumentType>tax_filing</com:DocumentType>
+    </com:ComplianceCheckRequest>
+  </soapenv:Body>
+</soapenv:Envelope>

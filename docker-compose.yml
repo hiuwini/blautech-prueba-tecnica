@@ -1,0 +1,250 @@
+name: regulatory-platform
+
+services:
+  mock-soap-server:
+    build:
+      context: ./services/mock-soap-server
+    container_name: regulatory-mock-soap-server
+    environment:
+      MOCK_SOAP_HOST: 0.0.0.0
+      MOCK_SOAP_PORT: 8090
+    ports:
+      - "${MOCK_SOAP_PORT:-8090}:8090"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  soap-gateway:
+    build:
+      context: ./services/soap-gateway
+    container_name: regulatory-soap-gateway
+    environment:
+      SOAP_GATEWAY_HOST: 0.0.0.0
+      SOAP_GATEWAY_PORT: 8001
+      MOCK_SOAP_BASE_URL: ${MOCK_SOAP_BASE_URL:-http://mock-soap-server:8090}
+      MOCK_SOAP_TIMEOUT_SECONDS: ${MOCK_SOAP_TIMEOUT_SECONDS:-5}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-regulatory_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-regulatory_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_postgres_password}
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/regulatory_audit}
+      MONGO_DATABASE: ${MONGO_DATABASE:-regulatory_audit}
+    ports:
+      - "${SOAP_GATEWAY_PORT:-8001}:8001"
+    depends_on:
+      mock-soap-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2).read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  document-processing:
+    build:
+      context: ./services/document-processing
+    container_name: regulatory-document-processing
+    environment:
+      DOCUMENT_PROCESSING_HOST: 0.0.0.0
+      DOCUMENT_PROCESSING_PORT: 8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-regulatory_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-regulatory_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_postgres_password}
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/regulatory_audit}
+      MONGO_DATABASE: ${MONGO_DATABASE:-regulatory_audit}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_BUCKET: ${MINIO_BUCKET:-regulatory-documents}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-local_minio_user}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change_me_local_minio_password}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      SOAP_GATEWAY_BASE_URL: ${SOAP_GATEWAY_BASE_URL:-http://soap-gateway:8001}
+      SOAP_GATEWAY_TIMEOUT_SECONDS: ${SOAP_GATEWAY_TIMEOUT_SECONDS:-5}
+      BFF_WEBHOOK_URL: ${BFF_WEBHOOK_URL:-http://bff-notifications:4000/api/v1/webhooks/processing-complete}
+      BFF_WEBHOOK_TIMEOUT_SECONDS: ${BFF_WEBHOOK_TIMEOUT_SECONDS:-3}
+      DOCUMENT_PROCESSING_CORS_ALLOWED_ORIGINS: ${DOCUMENT_PROCESSING_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      DOCUMENT_PROCESSING_PRESIGNED_URL_EXPIRY_SECONDS: ${DOCUMENT_PROCESSING_PRESIGNED_URL_EXPIRY_SECONDS:-900}
+    ports:
+      - "${DOCUMENT_PROCESSING_PORT:-8000}:8000"
+    depends_on:
+      soap-gateway:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      args:
+        VITE_DOCUMENT_PROCESSING_BASE_URL: ${VITE_DOCUMENT_PROCESSING_BASE_URL:-http://localhost:8000}
+        VITE_BFF_BASE_URL: ${VITE_BFF_BASE_URL:-http://localhost:4000}
+        VITE_SOCKET_IO_NAMESPACE: ${VITE_SOCKET_IO_NAMESPACE:-/notifications}
+    container_name: regulatory-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      bff-notifications:
+        condition: service_healthy
+      document-processing:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  bff-notifications:
+    build:
+      context: ./services/bff-notifications
+    container_name: regulatory-bff-notifications
+    environment:
+      BFF_HOST: 0.0.0.0
+      BFF_PORT: 4000
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      BFF_CORS_ALLOWED_ORIGINS: ${BFF_CORS_ALLOWED_ORIGINS:-}
+      FASTAPI_BASE_URL: ${FASTAPI_BASE_URL:-http://document-processing:8000}
+      BFF_FASTAPI_TIMEOUT_SECONDS: ${BFF_FASTAPI_TIMEOUT_SECONDS:-3}
+      BFF_DASHBOARD_PAGE_SIZE: ${BFF_DASHBOARD_PAGE_SIZE:-100}
+      BFF_DASHBOARD_MAX_DOCUMENTS: ${BFF_DASHBOARD_MAX_DOCUMENTS:-500}
+      SOCKET_IO_NAMESPACE: ${SOCKET_IO_NAMESPACE:-/notifications}
+    ports:
+      - "${BFF_PORT:-4000}:4000"
+    depends_on:
+      document-processing:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: regulatory-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-regulatory_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-regulatory_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_postgres_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  mongo:
+    image: mongo:7
+    container_name: regulatory-mongo
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-regulatory_audit}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: regulatory-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-local_minio_user}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change_me_local_minio_password}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - regulatory_internal
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: regulatory-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-local_minio_user}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change_me_local_minio_password}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-regulatory-documents}
+    volumes:
+      - ./infra/minio/create-bucket.sh:/scripts/create-bucket.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/create-bucket.sh"]
+    networks:
+      - regulatory_internal
+
+networks:
+  regulatory_internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
+  minio_data:

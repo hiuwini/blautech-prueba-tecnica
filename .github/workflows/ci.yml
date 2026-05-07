@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  bootstrap:
+    name: Bootstrap validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Check required project docs
+        run: |
+          test -f README.md
+          test -f AGENTS.md
+          test -f docs/development-plan.md
+          test -f .env.example
+
+  frontend:
+    name: Frontend lint and tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('apps/frontend/package.json') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/frontend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      - name: Lint
+        working-directory: apps/frontend
+        run: npm run lint --if-present
+
+      - name: Test
+        working-directory: apps/frontend
+        run: npm test --if-present
+
+      - name: Build
+        working-directory: apps/frontend
+        run: npm run build --if-present
+
+  mock-soap-server:
+    name: Mock SOAP Server tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('services/mock-soap-server/tests/test_server.py') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test
+        working-directory: services/mock-soap-server
+        run: python3 -m unittest discover -s tests
+
+  bff:
+    name: BFF lint and tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('services/bff-notifications/package.json') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: services/bff-notifications
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      - name: Lint
+        working-directory: services/bff-notifications
+        run: npm run lint --if-present
+
+      - name: Test
+        working-directory: services/bff-notifications
+        run: npm test --if-present
+
+      - name: Build
+        working-directory: services/bff-notifications
+        run: npm run build --if-present
+
+  document-processing:
+    name: FastAPI tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('services/document-processing/pyproject.toml', 'services/document-processing/requirements.txt') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/document-processing/requirements.txt
+
+      - name: Install dependencies
+        working-directory: services/document-processing
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then python -m pip install -e ".[dev]" || python -m pip install -e .; fi
+
+      - name: Test
+        working-directory: services/document-processing
+        run: python -m pytest
+
+  soap-gateway:
+    name: SOAP Gateway tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('services/soap-gateway/pyproject.toml', 'services/soap-gateway/requirements.txt') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/soap-gateway/requirements.txt
+
+      - name: Install dependencies
+        working-directory: services/soap-gateway
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then python -m pip install -e ".[dev]" || python -m pip install -e .; fi
+
+      - name: Test
+        working-directory: services/soap-gateway
+        run: python -m pytest

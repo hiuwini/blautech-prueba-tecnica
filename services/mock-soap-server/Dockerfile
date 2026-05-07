@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MOCK_SOAP_HOST=0.0.0.0 \
+    MOCK_SOAP_PORT=8090
+
+WORKDIR /app
+
+COPY app ./app
+
+EXPOSE 8090
+
+CMD ["python", "-m", "app"]
