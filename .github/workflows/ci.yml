@@ -34,10 +34,57 @@ jobs:
           test -f docs/development-plan.md
           test -f .env.example
 
+  detect_services:
+    name: Detect service manifests
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.detect.outputs.frontend }}
+      mock_soap_server: ${{ steps.detect.outputs.mock_soap_server }}
+      bff: ${{ steps.detect.outputs.bff }}
+      document_processing: ${{ steps.detect.outputs.document_processing }}
+      soap_gateway: ${{ steps.detect.outputs.soap_gateway }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect available services
+        id: detect
+        run: |
+          if [ -f apps/frontend/package.json ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f services/mock-soap-server/tests/test_server.py ]; then
+            echo "mock_soap_server=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mock_soap_server=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f services/bff-notifications/package.json ]; then
+            echo "bff=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f services/document-processing/requirements.txt ] || [ -f services/document-processing/pyproject.toml ]; then
+            echo "document_processing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "document_processing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f services/soap-gateway/requirements.txt ] || [ -f services/soap-gateway/pyproject.toml ]; then
+            echo "soap_gateway=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "soap_gateway=false" >> "$GITHUB_OUTPUT"
+          fi
+
   frontend:
     name: Frontend lint and tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/frontend/package.json') != '' }}
+    needs: detect_services
+    if: ${{ needs.detect_services.outputs.frontend == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +116,8 @@ jobs:
   mock-soap-server:
     name: Mock SOAP Server tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('services/mock-soap-server/tests/test_server.py') != '' }}
+    needs: detect_services
+    if: ${{ needs.detect_services.outputs.mock_soap_server == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -86,7 +134,8 @@ jobs:
   bff:
     name: BFF lint and tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('services/bff-notifications/package.json') != '' }}
+    needs: detect_services
+    if: ${{ needs.detect_services.outputs.bff == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -116,7 +165,8 @@ jobs:
   document-processing:
     name: FastAPI tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('services/document-processing/pyproject.toml', 'services/document-processing/requirements.txt') != '' }}
+    needs: detect_services
+    if: ${{ needs.detect_services.outputs.document_processing == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,7 +192,8 @@ jobs:
   soap-gateway:
     name: SOAP Gateway tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('services/soap-gateway/pyproject.toml', 'services/soap-gateway/requirements.txt') != '' }}
+    needs: detect_services
+    if: ${{ needs.detect_services.outputs.soap_gateway == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
