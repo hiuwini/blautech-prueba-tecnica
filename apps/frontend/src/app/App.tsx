@@ -156,7 +156,7 @@ function App() {
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedFile) {
-      setPageError("Selecciona un archivo antes de subirlo.");
+      setPageError("Selecciona un archivo .txt antes de subirlo.");
       return;
     }
 

@@ -24,6 +24,13 @@ def validate_non_empty_string(value: object, field_name: str) -> str:
         raise ValidationError(field_name, f"{field_name} is required")
     return value.strip()
 
+def validate_txt_filename(filename: str | None) -> str:
+    sanitized = sanitize_filename(filename)
+
+    if PurePath(sanitized).suffix.lower() != ".txt":
+        raise ValidationError("file", "only .txt and .text files are allowed")
+    return sanitized
+
 
 def sanitize_filename(filename: str | None) -> str:
     if filename is None:

@@ -19,6 +19,7 @@ from app.domain.documents.validators import (
     sanitize_filename,
     validate_non_empty_string,
     validate_uuid,
+    validate_txt_filename,
 )
 
 
